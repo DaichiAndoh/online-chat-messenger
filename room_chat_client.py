@@ -12,6 +12,7 @@ class ChatClient:
         self.tcp_client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.udp_client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.username = ""
+        self.room_name = ""
         try:
             self.tcp_client_socket.connect((SERVER_HOST, SERVER_PORT))
             print("connected to the server\n")
@@ -40,7 +41,7 @@ class ChatClient:
 
             try:
                 self.username = self.tcp_client_socket.recv(BUFFER_SIZE).decode("utf-8")
-                print(self.username)
+                self.room_name = input_room_name
             except socket.timeout:
                 print('socket timeout, ending listening for server messages')
 
@@ -62,8 +63,35 @@ class ChatClient:
             room_name.encode("utf-8") + \
             payload.encode("utf-8")
 
+    def send_message(self):
+        while True:
+            message = input("> ")
+            username_len = len(self.username)
+            room_name_len = len(self.room_name)
+            message_data = username_len.to_bytes(1, "big") + room_name_len.to_bytes(1, "big") + self.username.encode("utf-8") + self.room_name.encode("utf-8") + message.encode("utf-8")
+            self.udp_client_socket.sendto(message_data, (SERVER_HOST, SERVER_PORT))
+
+    def receive_messages(self):
+        while True:
+            data, _ = self.udp_client_socket.recvfrom(BUFFER_SIZE)
+            username_len = data[0]
+            room_name_len = data[1]
+            username = data[2:2 + username_len].decode("utf-8")
+            room_name = data[2 + username_len:2 + username_len + room_name_len].decode("utf-8")
+            message = data[2 + username_len + room_name_len:].decode("utf-8")
+            print(f"[{username}@{room_name}] {message}")
+
     def run(self):
         self.init_chat()
+
+        send_thread = threading.Thread(target=self.send_message)
+        receive_thread = threading.Thread(target=self.receive_messages)
+
+        send_thread.start()
+        receive_thread.start()
+
+        send_thread.join()
+        receive_thread.join()
 
 if __name__ == "__main__":
     chat_client = ChatClient()

@@ -22,6 +22,7 @@ class Client:
         self.username = ip + ':' + str(port)
         self.ip = None
         self.port = None
+        self.lastSentDate = None
 
 class ChatServer:
     def __init__(self):
@@ -59,6 +60,7 @@ class ChatServer:
             operation_payload["password"],
             operation_payload["participants_max_num"]
         )
+        room.participants = [client.username]
         self.rooms[room_name] = room
 
     def join_room(self, client, room_name, operation_payload):
@@ -69,7 +71,7 @@ class ChatServer:
             else:
                 print("error")
         except KeyError:
-            print("key error")
+            print("error")
 
     def run_tcp_socket(self):
         while True:
@@ -78,6 +80,37 @@ class ChatServer:
             self.clients[client.username] = client
             threading.Thread(target=self.init_chat, args=(client,)).start()
 
+    def handle_client(self, data, client_address):
+        username_len = data[0]
+        room_name_len = data[1]
+        username = data[2:2 + username_len].decode("utf-8")
+        room_name = data[2 + username_len:2 + username_len + room_name_len].decode("utf-8")
+        message = data[2 + username_len + room_name_len:].decode("utf-8")
+
+        if username in self.clients:
+            ip, port = client_address
+            self.clients[username].ip = ip
+            self.clients[username].port = port
+            self.clients[username].lastSentDate = datetime.now()
+
+            print(f"[{username}] {message}")
+            self.relay_message(data, username, room_name)
+
+    def relay_message(self, data, username, room_name):
+        standard_date = datetime.now() - timedelta(seconds=30)
+        room = self.rooms[room_name]
+
+        for _username in room.participants:
+            client = self.clients[_username]
+            if _username != username:
+                self.udp_server_socket.sendto(data, (client.ip, client.port))
+
+    def run_udp_socket(self):
+        while True:
+            data, client_address = self.udp_server_socket.recvfrom(BUFFER_SIZE)
+            threading.Thread(target=self.handle_client, args=(data, client_address)).start()
+
 if __name__ == "__main__":
     chat_server = ChatServer()
     threading.Thread(target=chat_server.run_tcp_socket).start()
+    threading.Thread(target=chat_server.run_udp_socket).start()
