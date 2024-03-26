@@ -40,7 +40,11 @@ class ChatClient:
             self.tcp_client_socket.settimeout(2)
 
             try:
-                self.username = self.tcp_client_socket.recv(BUFFER_SIZE).decode("utf-8")
+                response_data = json.loads(self.tcp_client_socket.recv(BUFFER_SIZE).decode("utf-8"))
+                if not response_data["status"]:
+                    print("Error:" + response_data["payload"])
+                    sys.exit(1)
+                self.username = response_data["payload"]
                 self.room_name = input_room_name
             except socket.timeout:
                 print('socket timeout, ending listening for server messages')
@@ -74,12 +78,14 @@ class ChatClient:
     def receive_messages(self):
         while True:
             data, _ = self.udp_client_socket.recvfrom(BUFFER_SIZE)
-            username_len = data[0]
-            room_name_len = data[1]
-            username = data[2:2 + username_len].decode("utf-8")
-            room_name = data[2 + username_len:2 + username_len + room_name_len].decode("utf-8")
-            message = data[2 + username_len + room_name_len:].decode("utf-8")
+            response_data = json.loads(data.decode("utf-8"))
+            status = response_data["status"]
+            username = response_data["username"]
+            room_name = response_data["room_name"]
+            message = response_data["message"]
             print(f"[{username}@{room_name}] {message}")
+            if not status:
+                sys.exit(1)
 
     def run(self):
         self.init_chat()

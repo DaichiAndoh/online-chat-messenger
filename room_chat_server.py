@@ -13,7 +13,7 @@ class ChatRoom:
         self.owner = owner
         self.participants_max_num = participants_max_num
         self.password = password
-        self.participants = []
+        self.participants = [owner]
 
 class Client:
     def __init__(self, connection, tcp_client_address):
@@ -46,12 +46,17 @@ class ChatServer:
         room_name = request_header[32:32 + room_name_len].decode("utf-8")
         operation_payload = json.loads(request_header[32 + room_name_len:].decode("utf-8"))
 
+        result = ""
         if operation == 1:
-            self.create_room(client, room_name, operation_payload)
+            result = self.create_room(client, room_name, operation_payload)
         elif operation == 2:
-            self.join_room(client, room_name, operation_payload)
+            result = self.join_room(client, room_name, operation_payload)
 
-        client.connection.sendall(client.username.encode())
+        response_data = {
+            'status': 1 if result == "" else 0,
+            'payload': client.username if result == "" else result,
+        }
+        client.connection.sendall(json.dumps(response_data).encode())
 
     def create_room(self, client, room_name, operation_payload):
         room = ChatRoom(
@@ -60,18 +65,19 @@ class ChatServer:
             operation_payload["password"],
             operation_payload["participants_max_num"]
         )
-        room.participants = [client.username]
         self.rooms[room_name] = room
+        return ""
 
     def join_room(self, client, room_name, operation_payload):
         try:
             room = self.rooms[room_name]
             if room.password == operation_payload["password"] and len(room.participants) < room.participants_max_num:
                 self.rooms[room_name].participants.append(client.username)
+                return ""
             else:
-                print("error")
+                return "password is not correct or room participants limit has been reached"
         except KeyError:
-            print("error")
+            return "room is not found"
 
     def run_tcp_socket(self):
         while True:
@@ -87,23 +93,51 @@ class ChatServer:
         room_name = data[2 + username_len:2 + username_len + room_name_len].decode("utf-8")
         message = data[2 + username_len + room_name_len:].decode("utf-8")
 
-        if username in self.clients:
+        client = self.clients[username]
+        room = self.rooms[room_name]
+
+        if self.rooms[room_name].participants.index(self.clients[username].username) > -1:
             ip, port = client_address
             self.clients[username].ip = ip
             self.clients[username].port = port
             self.clients[username].lastSentDate = datetime.now()
 
             print(f"[{username}] {message}")
-            self.relay_message(data, username, room_name)
+            self.relay_message(message, username, room_name)
 
-    def relay_message(self, data, username, room_name):
+    def relay_message(self, message, username, room_name):
         standard_date = datetime.now() - timedelta(seconds=30)
+        client = self.clients[username]
         room = self.rooms[room_name]
 
-        for _username in room.participants:
-            client = self.clients[_username]
-            if _username != username:
-                self.udp_server_socket.sendto(data, (client.ip, client.port))
+        if self.clients[room.owner].lastSentDate < standard_date:
+            for _username in room.participants:
+                client = self.clients[_username]
+                self.udp_server_socket.sendto(json.dumps({
+                    'status': 0,
+                    'username': "Server Alert",
+                    'room_name': room_name,
+                    'message':  "room is closed",
+                }).encode(), (client.ip, client.port))
+            self.rooms.pop(room_name)
+        else:
+            for _username in room.participants:
+                client = self.clients[_username]
+                if _username != username and client.lastSentDate > standard_date:
+                    self.udp_server_socket.sendto(json.dumps({
+                        'status': 1,
+                        'username': username,
+                        'room_name': room_name,
+                        'message':  message,
+                    }).encode(), (client.ip, client.port))
+                elif _username != username and client.lastSentDate < standard_date:
+                    self.udp_server_socket.sendto(json.dumps({
+                        'status': 0,
+                        'username': "Server Alert",
+                        'room_name': room_name,
+                        'message':  "time out error",
+                    }).encode(), (client.ip, client.port))
+                    room.participants.pop(room.participants.index(_username))
 
     def run_udp_socket(self):
         while True:
