@@ -19,7 +19,7 @@ class Client:
     def __init__(self, connection, tcp_client_address):
         ip, port = tcp_client_address
         self.connection = connection
-        self.username = ip + ':' + str(port)
+        self.username = ip + ":" + str(port)
         self.ip = None
         self.port = None
         self.lastSentDate = None
@@ -30,10 +30,11 @@ class ChatServer:
         self.rooms = {}
 
         self.tcp_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.udp_server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.tcp_server_socket.bind((SERVER_HOST, SERVER_PORT))
-        self.udp_server_socket.bind((SERVER_HOST, SERVER_PORT))
         self.tcp_server_socket.listen(1)
+
+        self.udp_server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.udp_server_socket.bind((SERVER_HOST, SERVER_PORT))
         print("server is listening...\n")
 
     def init_chat(self, client):
@@ -53,8 +54,8 @@ class ChatServer:
             result = self.join_room(client, room_name, operation_payload)
 
         response_data = {
-            'status': 1 if result == "" else 0,
-            'payload': client.username if result == "" else result,
+            "status": 1 if result == "" else 0,
+            "payload": client.username if result == "" else result,
         }
         client.connection.sendall(json.dumps(response_data).encode())
 
@@ -96,48 +97,48 @@ class ChatServer:
         client = self.clients[username]
         room = self.rooms[room_name]
 
-        if self.rooms[room_name].participants.index(self.clients[username].username) > -1:
-            ip, port = client_address
-            self.clients[username].ip = ip
-            self.clients[username].port = port
-            self.clients[username].lastSentDate = datetime.now()
+        client.ip = client_address[0]
+        client.port = client_address[1]
+        client.lastSentDate = datetime.now()
+        print(f"[{username}] {message}")
+        self.relay_message(message, client, room)
 
-            print(f"[{username}] {message}")
-            self.relay_message(message, username, room_name)
-
-    def relay_message(self, message, username, room_name):
+    def relay_message(self, message, client, room):
         standard_date = datetime.now() - timedelta(seconds=30)
-        client = self.clients[username]
-        room = self.rooms[room_name]
+        room_owner = self.clients[room.owner]
 
-        if self.clients[room.owner].lastSentDate < standard_date:
-            for _username in room.participants:
-                client = self.clients[_username]
-                self.udp_server_socket.sendto(json.dumps({
-                    'status': 0,
-                    'username': "Server Alert",
-                    'room_name': room_name,
-                    'message':  "room is closed",
-                }).encode(), (client.ip, client.port))
-            self.rooms.pop(room_name)
+        if room_owner.lastSentDate < standard_date:
+            for username in room.participants:
+                participant = self.clients[username]
+                self.udp_server_socket.sendto(
+                    self.create_response_data(0, "Server Alert", room.room_name, "room is closed"),
+                    (participant.ip, participant.port)
+                )
+                self.clients.pop(participant.username)
+            self.rooms.pop(room.room_name)
         else:
-            for _username in room.participants:
-                client = self.clients[_username]
-                if _username != username and client.lastSentDate > standard_date:
-                    self.udp_server_socket.sendto(json.dumps({
-                        'status': 1,
-                        'username': username,
-                        'room_name': room_name,
-                        'message':  message,
-                    }).encode(), (client.ip, client.port))
-                elif _username != username and client.lastSentDate < standard_date:
-                    self.udp_server_socket.sendto(json.dumps({
-                        'status': 0,
-                        'username': "Server Alert",
-                        'room_name': room_name,
-                        'message':  "time out error",
-                    }).encode(), (client.ip, client.port))
-                    room.participants.pop(room.participants.index(_username))
+            for username in room.participants:
+                participant = self.clients[username]
+                if participant.username != client.username and participant.lastSentDate > standard_date:
+                    self.udp_server_socket.sendto(
+                        self.create_response_data(1, username, room.room_name, message),
+                        (participant.ip, participant.port)
+                    )
+                elif participant.username != client.username and participant.lastSentDate < standard_date:
+                    self.udp_server_socket.sendto(
+                        self.create_response_data(0, "Server Alert", room.room_name, "time out error"),
+                        (participant.ip, participant.port)
+                    )
+                    room.participants.pop(room.participants.index(participant.username))
+                    self.clients.pop(participant.username)
+
+    def create_response_data(self, status, username, room_name, message):
+        return json.dumps({
+            "status": status,
+            "username": username,
+            "room_name": room_name,
+            "message":  message,
+        }).encode()
 
     def run_udp_socket(self):
         while True:
