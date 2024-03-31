@@ -47,7 +47,7 @@ class ChatClient:
                 self.username = response_data["payload"]
                 self.room_name = input_room_name
             except socket.timeout:
-                print('socket timeout, ending listening for server messages')
+                print("socket timeout, ending listening for server messages")
 
         finally:
             self.tcp_client_socket.close()
@@ -56,8 +56,8 @@ class ChatClient:
         _operation = 1 if operation == "create" else 2
         room_name_len = len(room_name)
         payload = json.dumps({
-            'password': password,
-            'participants_max_num': int(participants_max_num),
+            "password": password,
+            "participants_max_num": int(participants_max_num),
         })
         payload_len = len(payload)
 
