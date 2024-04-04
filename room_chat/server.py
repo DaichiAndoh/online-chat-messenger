@@ -147,5 +147,11 @@ class ChatServer:
 
 if __name__ == "__main__":
     chat_server = ChatServer()
-    threading.Thread(target=chat_server.run_tcp_socket).start()
-    threading.Thread(target=chat_server.run_udp_socket).start()
+    tcp_thread = threading.Thread(target=chat_server.run_tcp_socket)
+    udp_thread = threading.Thread(target=chat_server.run_udp_socket)
+
+    tcp_thread.start()
+    udp_thread.start()
+
+    tcp_thread.join()
+    udp_thread.join()
